@@ -34,6 +34,8 @@ from initialize_train import (
 
 import sys
 config_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+print(config_dir)
+# print(sys.path)
 sys.path.append(config_dir)
 from config import RESULTS_FOLDER
 torch.backends.cudnn.benchmark = True

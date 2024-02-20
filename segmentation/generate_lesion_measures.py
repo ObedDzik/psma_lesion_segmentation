@@ -1,4 +1,3 @@
-#%%
 '''
 Copyright (c) Microsoft Corporation. All rights reserved.
 Licensed under the MIT License.
@@ -14,6 +13,7 @@ config_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 sys.path.append(config_dir)
 from config import RESULTS_FOLDER
 from metrics.metrics import *
+
 
 def get_spacing_from_niftipath(path):
     spacing = sitk.ReadImage(path).GetSpacing()
@@ -67,8 +67,8 @@ def main(args):
         tlg_orig = calculate_patient_level_tlg(ptarray, gtarray, spacing)
         tlg_pred = calculate_patient_level_tlg(ptarray, predarray, spacing)
         # Dmax
-        dmax_orig = calculate_patient_level_dissemination(gtarray, spacing)
-        dmax_pred = calculate_patient_level_dissemination(predarray, spacing)
+        # dmax_orig = calculate_patient_level_dissemination(gtarray, spacing)
+        # dmax_pred = calculate_patient_level_dissemination(predarray, spacing)
         
         DSC.append(dsc)
         SUVmean_orig.append(suvmean_orig)
@@ -81,8 +81,8 @@ def main(args):
         TMTV_pred.append(tmtv_pred)
         TLG_orig.append(tlg_orig)
         TLG_pred.append(tlg_pred)
-        Dmax_orig.append(dmax_orig)
-        Dmax_pred.append(dmax_pred)
+        # Dmax_orig.append(dmax_orig)
+        # Dmax_pred.append(dmax_pred)
         
         
         print(f"{i}: {imageids[i]}")
@@ -92,7 +92,7 @@ def main(args):
         print(f"LesionCount: GT: {lesioncount_orig}, Pred: {lesioncount_pred}")
         print(f"TMTV: GT: {tmtv_orig} ml, Pred: {tmtv_pred} ml")
         print(f"TLG: GT: {tlg_orig} ml, Pred: {tlg_pred} ml")
-        print(f"Dmax: GT: {dmax_orig} cm, Pred: {dmax_pred} cm")
+        # print(f"Dmax: GT: {dmax_orig} cm, Pred: {dmax_pred} cm")
         print("\n")
 
     save_lesionmeasures_dir = os.path.join(RESULTS_FOLDER, f'test_lesion_measures', 'fold'+str(fold), network, experiment_code)
@@ -113,8 +113,8 @@ def main(args):
                 TMTV_pred,
                 TLG_orig,
                 TLG_pred,
-                Dmax_orig,
-                Dmax_pred
+                # Dmax_orig,
+                # Dmax_pred
             ]
         )
 
@@ -133,8 +133,8 @@ def main(args):
             'TMTV_pred',
             'TLG_orig',
             'TLG_pred',
-            'Dmax_orig',
-            'Dmax_pred'
+            # 'Dmax_orig',
+            # 'Dmax_pred'
         ]
     )
     data_df.to_csv(filepath, index=False)
@@ -146,7 +146,7 @@ if __name__ == "__main__":
                         help='validation fold (default: 0), remaining folds will be used for training')
     parser.add_argument('--network-name', type=str, default='unet', metavar='netname',
                         help='network name for training (default: unet)')
-    parser.add_argument('--input-patch-size', type=int, default=192, metavar='inputsize',
+    parser.add_argument('--input-patch-size', type=int, default=128, metavar='inputsize',
                         help='size of cropped input patch for training (default: 192)')
     args = parser.parse_args()
     main(args)

@@ -13,15 +13,15 @@ from monai.transforms import (
     Spacingd,
     RandAffined,
     ConcatItemsd,
+    ScaleIntensity,
     ScaleIntensityRanged,
     ResizeWithPadOrCropd,
     Invertd,
     AsDiscreted,
-    SaveImaged,
-    
+    SaveImaged
 )
-from monai.networks.nets import UNet, SegResNet, DynUNet, SwinUNETR, UNETR, AttentionUnet
 from monai.networks.layers import Norm
+from monai.networks.nets import UNet, SegResNet, DynUNet, UNETR
 from monai.metrics import DiceMetric
 from monai.losses import DiceLoss
 import torch
@@ -152,10 +152,11 @@ def get_train_transforms(input_patch_size=192):
     mod_keys = ['CT', 'PT', 'GT']
     train_transforms = Compose(
     [
-        LoadImaged(keys=mod_keys, image_only=True),
+        LoadImaged(keys=mod_keys, image_only=False),
         EnsureChannelFirstd(keys=mod_keys),
         CropForegroundd(keys=mod_keys, source_key='CT'),
-        ScaleIntensityRanged(keys=['CT'], a_min=-154, a_max=325, b_min=0, b_max=1, clip=True),
+        ScaleIntensity(keys=['CT'], minv=0, maxv=1),
+        # ScaleIntensityRanged(keys=['CT'], a_min=300, a_max=700, b_min=0, b_max=1, clip=True),
         Orientationd(keys=mod_keys, axcodes="RAS"),
         Spacingd(keys=mod_keys, pixdim=spacing, mode=('bilinear', 'bilinear', 'nearest')),
         RandCropByPosNegLabeld(
@@ -164,7 +165,7 @@ def get_train_transforms(input_patch_size=192):
             spatial_size = spatialsize,
             pos=2,
             neg=1,
-            num_samples=1,
+            num_samples=3,
             image_key='PT',
             image_threshold=0,
             allow_smaller=True,
@@ -194,10 +195,11 @@ def get_valid_transforms():
     mod_keys = ['CT', 'PT', 'GT']
     valid_transforms = Compose(
     [
-        LoadImaged(keys=mod_keys),
+        LoadImaged(keys=mod_keys, image_only=False),
         EnsureChannelFirstd(keys=mod_keys),
         CropForegroundd(keys=mod_keys, source_key='CT'),
-        ScaleIntensityRanged(keys=['CT'], a_min=-154, a_max=325, b_min=0, b_max=1, clip=True),
+        ScaleIntensity(keys=['CT'], minv=0, maxv=1),
+        # ScaleIntensityRanged(keys=['CT'], a_min=300, a_max=700, b_min=0, b_max=1, clip=True),
         Orientationd(keys=mod_keys, axcodes="RAS"),
         Spacingd(keys=mod_keys, pixdim=spacing, mode=('bilinear', 'bilinear', 'nearest')),
         ConcatItemsd(keys=['CT', 'PT'], name='CTPT', dim=0),
@@ -266,15 +268,15 @@ def get_model(network_name = 'unet', input_patch_size=192):
             num_res_units=2,
             norm=Norm.BATCH
         )
-    elif network_name == 'swinunetr':
-        spatialsize = get_spatial_size(input_patch_size)
-        model = SwinUNETR(
-            img_size=spatialsize,
-            in_channels=2,
-            out_channels=2,
-            feature_size=12,
-            use_checkpoint=False,
-        )
+    # elif network_name == 'swinunetr':
+    #     spatialsize = get_spatial_size(input_patch_size)
+    #     model = SwinUNETR(
+    #         img_size=spatialsize,
+    #         in_channels=2,
+    #         out_channels=2,
+    #         feature_size=12,
+    #         use_checkpoint=False,
+    #     )
     elif network_name =='segresnet':
         model = SegResNet(
             spatial_dims=3,
@@ -320,8 +322,8 @@ def get_scheduler(optimizer, max_epochs=500):
 
 def get_validation_sliding_window_size(input_patch_size=192):
     dict_W_for_N = {
-        96:128,
-        128:160,
+        64:64,
+        128:128,
         160:192,
         192:192,
         224:224,

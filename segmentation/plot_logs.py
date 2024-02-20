@@ -2,6 +2,7 @@
 Copyright (c) Microsoft Corporation. All rights reserved.
 Licensed under the MIT License.
 '''
+#%%
 import pandas as pd 
 import matplotlib.pyplot as plt
 import numpy as np 
@@ -13,7 +14,7 @@ sys.path.append(config_dir)
 from config import RESULTS_FOLDER
 
 # %%
-def plot_train_logs(train_fpaths, valid_fpaths, network_names):
+def plot_train_logs(train_fpaths, valid_fpaths, network_names, input_patch_size):
     train_dfs = [pd.read_csv(path) for path in train_fpaths]
     valid_dfs = [pd.read_csv(path) for path in valid_fpaths]
 
@@ -37,8 +38,8 @@ def plot_train_logs(train_fpaths, valid_fpaths, network_names):
         
         ax[0].text(np.min(train_epochs[i]), np.min(train_losses[i]), f'Total epochs: {len(train_epochs[i])}', fontsize=15)
         
-    legend_labels_trainloss = [f"{network_names[i]}; Min loss: {round(min_losses[i], 4)} ({len(train_epochs[i])})" for i in range(len(network_names))]
-    legend_labels_validdice = [f"{network_names[i]}; Max DSC: {round(max_dscs[i], 4)} ({len(valid_epochs[i])})" for i in range(len(network_names))]
+    legend_labels_trainloss = [f"{network_names[i]}; Min loss: {round(min_losses[i], 4)} ({min_losses_epoch[i]})" for i in range(len(network_names))]
+    legend_labels_validdice = [f"{network_names[i]}; Max DSC: {round(max_dscs[i], 4)} ({max_dscs_epoch[i]})" for i in range(len(network_names))]
 
     ax[0].legend(legend_labels_trainloss, fontsize=16)
     ax[1].legend(legend_labels_validdice, fontsize=16)
@@ -48,27 +49,31 @@ def plot_train_logs(train_fpaths, valid_fpaths, network_names):
     ax[1].set_ylabel('Dice score', fontsize=20)
     ax[0].grid(True)
     ax[1].grid(True)
-    plt.show()
+    fig.savefig(os.path.join(RESULTS_FOLDER, f'{input_patch_size}figs'))
+    # plt.show()
 
 #%%
 fold = 0
 network = ['unet']
-inputsize = [192, 192, 160, 128]
+inputsize = [128]#, 192, 160, 128]
+input_patch_size = 128
 p = 2
 inputsize_dict = {
-    'unet': 192,
-    'attentionunet': 192,
-    'segresnet': 192,
-    'dynunet': 160,
-    'unetr': 160,
-    'swinunetr': 128
+    'unet': 128,
+    # 'attentionunet': 192,
+    # 'segresnet': 192,
+    # 'dynunet': 160,
+    # 'unetr': 160,
+    # 'swinunetr': 128
 }
 
 experiment_code = [f"{network[i]}_fold{fold}_randcrop{inputsize[i]}" for i in range(len(network))]
 save_logs_dir = os.path.join(RESULTS_FOLDER, 'logs')
 save_logs_folders = [os.path.join(save_logs_dir, 'fold'+str(fold), network[i], experiment_code[i]) for i in range(len(experiment_code))]
-train_fpaths = [os.path.join(save_logs_folders[i], 'trainloss_gpu0.csv') for i in range(len(save_logs_folders))]
-valid_fpaths = [os.path.join(save_logs_folders[i], 'validdice_gpu0.csv') for i in range(len(save_logs_folders))]
+train_fpaths = [os.path.join(save_logs_folders[i], 'trainlog_gpu0.csv') for i in range(len(save_logs_folders))]
+valid_fpaths = [os.path.join(save_logs_folders[i], 'validlog_gpu0.csv') for i in range(len(save_logs_folders))]
 legend_lbls = [f'{network[i]}, N = {inputsize[i]}' for i in range(len(network))]
-plot_train_logs(train_fpaths, valid_fpaths, legend_lbls)
+plot_train_logs(train_fpaths, valid_fpaths, legend_lbls, input_patch_size)
 
+
+# %%

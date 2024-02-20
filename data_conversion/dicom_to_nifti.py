@@ -18,6 +18,7 @@ import dateutil
 import pandas as pd
 import os
 import time
+import csv
 
 #%%
 '''
@@ -27,6 +28,7 @@ series map image intensities to Bq/mL. Saved PET files will have image
 intensities of SUVbw, and saved CT files will have HU units.
 
 '''
+csv_file_path = './nolesions.csv'
 def bqml_to_suv(dcm_file: FileDataset) -> float:
     
     # Calculates the SUV conversion factor from Bq/mL to SUVbw using 
@@ -56,19 +58,20 @@ def bqml_to_suv(dcm_file: FileDataset) -> float:
 def get_filtered_roi_list(rois):
     filtered_rois = []
     for roi in rois:
-        if roi.endswith('PETEdge'):
+        if roi.lower().startswith('lesion'):
             filtered_rois.append(roi)
         else:
             pass
     return filtered_rois
 
 
-def load_merge_masks(rtstruct: RTStruct) -> np.ndarray:
+def load_merge_masks(patient_id, rtstruct: RTStruct) -> np.ndarray:
     '''
     Load and merge masks from a dicom RTStruct. All of the
     masks in the RTStruct will be merged. Add an extra line
     of code if you want to filter for/out certain masks.
     '''
+    noLesions = []
     rois = rtstruct.get_roi_names()
     rois = get_filtered_roi_list(rois)
     masks = []
@@ -78,54 +81,64 @@ def load_merge_masks(rtstruct: RTStruct) -> np.ndarray:
         masks.append(mask_3d)
 
     final_mask = sum(masks)  # sums element-wise
-    final_mask = np.where(final_mask>=1, 1, 0)
-    # Reorient the mask to line up with the reference image
-    final_mask = np.moveaxis(final_mask, [0, 1, 2], [1, 2, 0])
+    if masks == []:
+        noLesions.append(patient_id)
+        
+        with open(csv_file_path, 'a', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(noLesions)
+            
+        return final_mask
+    
+    else:
+        final_mask = np.where(final_mask>=1, 1, 0)
+        # Reorient the mask to line up with the reference image
+        final_mask = np.moveaxis(final_mask, [0, 1, 2], [1, 2, 0])
 
-    return final_mask
+        return final_mask
 
 ############################################################################################
 ########  Update the three variables below with the locations of your choice  ##############
 ############################################################################################
-save_dir_ct = '' # path to directory where your new CT files in NIFTI format will be written
-save_dir_pt = '' # path to directory where your new PET files in NIFTI format will be written
-save_dir_gt = '' # path to directory where your new GT files in NIFTI format will be written
+save_dir_ct = './../../../../../../data/blobfuse/PSMA_PCA_LESIONS_SEGMENTATION/converted_data/CT' # path to directory where your new CT files in NIFTI format will be written
+save_dir_pt = './../../../../../../data/blobfuse/PSMA_PCA_LESIONS_SEGMENTATION/converted_data/PT' # path to directory where your new PET files in NIFTI format will be written
+save_dir_gt = './../../../../../../data/blobfuse/PSMA_PCA_LESIONS_SEGMENTATION/converted_data/GT' # path to directory where your new GT files in NIFTI format will be written
 ############################################################################################
 ############################################################################################
 ############################################################################################
 
-cases = pd.read_csv('dicom_ctpt_to_nifti_conversion_file.csv')
-cases = list(cases.itertuples(index=False, name=None)) 
-structs = pd.read_csv('dicom_rtstruct_to_nifti_conversion_file.csv')
+# cases = pd.read_csv('/home/jhubadmin/Desktop/segmentation_research/lymphoma-segmentation-dnn/data_conversion/dicom_ctpt_to_nifti_conversion_file.csv')
+# cases = list(cases.itertuples(index=False, name=None)) 
+structs = pd.read_csv('/home/jhubadmin/Desktop/segmentation_research/lymphoma-segmentation-dnn/data_conversion/dicom_rtstruct_to_nifti_conversion_file.csv')
 structs = list(structs.itertuples(index=False, name=None))
 # Execution
 start = time.time()
 
-for case in cases:
-    patient_id, ct_folder, pet_folder, convert = case
-    if convert=='N':
-        continue
-    print(f'Converting patient Id: {patient_id}')
+# for case in cases:
+#     patient_id, ct_folder, pet_folder, convert = case
+#     if convert=='N':
+#         continue
+#     print(f'Converting patient Id: {patient_id}')
 
-    # Convert CT series
-    ct_reader = sitk.ImageSeriesReader()
-    ct_series_names = ct_reader.GetGDCMSeriesFileNames(ct_folder)
-    ct_reader.SetFileNames(ct_series_names)
-    ct = ct_reader.Execute()
-    sitk.WriteImage(ct, os.path.join(save_dir_ct, f"{patient_id}_0000.nii.gz"), imageIO='NiftiImageIO')
-    print('Saved nifti CT')
+#     # Convert CT series
+#     ct_reader = sitk.ImageSeriesReader()
+#     ct_series_names = ct_reader.GetGDCMSeriesFileNames(ct_folder)
+#     ct_reader.SetFileNames(ct_series_names)
+#     ct = ct_reader.Execute()
+#     sitk.WriteImage(ct, os.path.join(save_dir_ct, f"{patient_id}_0000.nii.gz"), imageIO='NiftiImageIO')
+#     print('Saved nifti CT')
 
-    # Convert PET series
-    pet_reader = sitk.ImageSeriesReader()
-    pet_series_names = pet_reader.GetGDCMSeriesFileNames(pet_folder)
-    pet_reader.SetFileNames(pet_series_names)
-    pet = pet_reader.Execute()
+#     # Convert PET series
+#     pet_reader = sitk.ImageSeriesReader()
+#     pet_series_names = pet_reader.GetGDCMSeriesFileNames(pet_folder)
+#     pet_reader.SetFileNames(pet_series_names)
+#     pet = pet_reader.Execute()
 
-    pet_img = dcmread(pet_series_names[0])  # read one of the images for header info
-    suv_factor = bqml_to_suv(pet_img)
-    pet = sitk.Multiply(pet, suv_factor)
-    sitk.WriteImage(pet, os.path.join(save_dir_pt, f"{patient_id}_0001.nii.gz"), imageIO='NiftiImageIO')
-    print('Saved nifti PET')
+#     pet_img = dcmread(pet_series_names[0])  # read one of the images for header info
+#     suv_factor = bqml_to_suv(pet_img)
+#     pet = sitk.Multiply(pet, suv_factor)
+#     sitk.WriteImage(pet, os.path.join(save_dir_pt, f"{patient_id}_0001.nii.gz"), imageIO='NiftiImageIO')
+#     print('Saved nifti PET')
 
 # Execution
 for struct in structs:
@@ -140,7 +153,11 @@ for struct in structs:
 
     # Create the mask
     rtstruct = RTStructBuilder.create_from(dicom_series_path= ref_folder, rt_struct_path=struct_path)
-    final_mask = load_merge_masks(rtstruct)
+    final_mask = load_merge_masks(patient_id,rtstruct)
+    
+    if np.array_equal(final_mask,0):
+        continue
+  
 
     # Load original DICOM image for reference
     reader = sitk.ImageSeriesReader()
