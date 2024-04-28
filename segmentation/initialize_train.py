@@ -13,15 +13,14 @@ from monai.transforms import (
     Spacingd,
     RandAffined,
     ConcatItemsd,
-    ScaleIntensity,
-    ScaleIntensityRanged,
+    ScaleIntensityd,
     ResizeWithPadOrCropd,
     Invertd,
     AsDiscreted,
     SaveImaged
 )
 from monai.networks.layers import Norm
-from monai.networks.nets import UNet, SegResNet, DynUNet, UNETR
+from monai.networks.nets import UNet
 from monai.metrics import DiceMetric
 from monai.losses import DiceLoss
 import torch
@@ -155,17 +154,16 @@ def get_train_transforms(input_patch_size=192):
         LoadImaged(keys=mod_keys, image_only=False),
         EnsureChannelFirstd(keys=mod_keys),
         CropForegroundd(keys=mod_keys, source_key='CT'),
-        ScaleIntensity(keys=['CT'], minv=0, maxv=1),
-        # ScaleIntensityRanged(keys=['CT'], a_min=300, a_max=700, b_min=0, b_max=1, clip=True),
+        ScaleIntensityd(keys=['CT'], minv=0, maxv=1),
         Orientationd(keys=mod_keys, axcodes="RAS"),
         Spacingd(keys=mod_keys, pixdim=spacing, mode=('bilinear', 'bilinear', 'nearest')),
         RandCropByPosNegLabeld(
             keys=mod_keys,
             label_key='GT',
             spatial_size = spatialsize,
-            pos=2,
+            pos=4,
             neg=1,
-            num_samples=3,
+            num_samples=1,
             image_key='PT',
             image_threshold=0,
             allow_smaller=True,
@@ -198,8 +196,7 @@ def get_valid_transforms():
         LoadImaged(keys=mod_keys, image_only=False),
         EnsureChannelFirstd(keys=mod_keys),
         CropForegroundd(keys=mod_keys, source_key='CT'),
-        ScaleIntensity(keys=['CT'], minv=0, maxv=1),
-        # ScaleIntensityRanged(keys=['CT'], a_min=300, a_max=700, b_min=0, b_max=1, clip=True),
+        ScaleIntensityd(keys=['CT'], minv=0, maxv=1),
         Orientationd(keys=mod_keys, axcodes="RAS"),
         Spacingd(keys=mod_keys, pixdim=spacing, mode=('bilinear', 'bilinear', 'nearest')),
         ConcatItemsd(keys=['CT', 'PT'], name='CTPT', dim=0),
@@ -268,36 +265,7 @@ def get_model(network_name = 'unet', input_patch_size=192):
             num_res_units=2,
             norm=Norm.BATCH
         )
-    # elif network_name == 'swinunetr':
-    #     spatialsize = get_spatial_size(input_patch_size)
-    #     model = SwinUNETR(
-    #         img_size=spatialsize,
-    #         in_channels=2,
-    #         out_channels=2,
-    #         feature_size=12,
-    #         use_checkpoint=False,
-    #     )
-    elif network_name =='segresnet':
-        model = SegResNet(
-            spatial_dims=3,
-            blocks_down=[1, 2, 2, 4],
-            blocks_up=[1, 1, 1],
-            init_filters=16,
-            in_channels=2,
-            out_channels=2,
-        )
-    elif network_name == 'dynunet':
-        spatialsize = get_spatial_size(input_patch_size)
-        spacing = get_spacing()
-        krnls, strds = get_kernels_strides(spatialsize, spacing)
-        model = DynUNet(
-            spatial_dims=3,
-            in_channels=2,
-            out_channels=2,
-            kernel_size=krnls,
-            strides=strds,
-            upsample_kernel_size=strds[1:],
-        )
+
     else:
         pass
     return model
@@ -316,7 +284,7 @@ def get_metric():
     metric = DiceMetric(include_background=False, reduction="mean")
     return metric
 
-def get_scheduler(optimizer, max_epochs=500):
+def get_scheduler(optimizer, max_epochs=1000):
     scheduler = CosineAnnealingLR(optimizer, T_max=max_epochs, eta_min=0)
     return scheduler
 
