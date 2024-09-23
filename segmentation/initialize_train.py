@@ -2,6 +2,9 @@
 Copyright (c) Microsoft Corporation. All rights reserved.
 Licensed under the MIT License.
 '''
+
+from monai.transforms import Transform
+
 from monai.transforms import (
     EnsureChannelFirstd,
     Compose,
@@ -9,6 +12,7 @@ from monai.transforms import (
     LoadImaged,
     Orientationd,
     RandCropByPosNegLabeld,
+    ScaleIntensityRanged,
     DeleteItemsd,
     Spacingd,
     RandAffined,
@@ -17,12 +21,14 @@ from monai.transforms import (
     ResizeWithPadOrCropd,
     Invertd,
     AsDiscreted,
-    SaveImaged
+    SaveImaged,
 )
 from monai.networks.layers import Norm
-from monai.networks.nets import UNet
+from monai.networks.nets import UNet, SegResNet, DynUNet, SwinUNETR, UNETR, AttentionUnet
 from monai.metrics import DiceMetric
-from monai.losses import DiceLoss
+from monai.losses import DiceLoss, DiceFocalLoss, DiceCELoss
+from losses import GHMDiceLoss, GHMDiceLoss1
+from monai.networks import one_hot
 import torch
 import matplotlib.pyplot as plt
 from glob import glob 
@@ -51,8 +57,9 @@ def create_dictionary_ctptgt(ctpaths, ptpaths, gtpaths):
     for i in range(len(gtpaths)):
         ctpath = ctpaths[i]
         ptpath = ptpaths[i]
+        # organmaskpath = organmaskpaths[i]
         gtpath = gtpaths[i]
-        data.append({'CT':ctpath, 'PT':ptpath, 'GT':gtpath})
+        data.append({ 'CT':ctpath, 'PT':ptpath,'GT':gtpath})
     return data
 
 def remove_all_extensions(filename):
@@ -82,6 +89,7 @@ def create_data_split_files():
 
         ctpaths = sorted(glob(os.path.join(imagesTr, '*0000.nii.gz')))
         ptpaths = sorted(glob(os.path.join(imagesTr, '*0001.nii.gz')))
+        # organmaskpaths = sorted(glob(os.path.join(imagesTr, "*0002.nii.gz")))
         gtpaths = sorted(glob(os.path.join(labelsTr, '*.nii.gz')))
         imageids = [remove_all_extensions(os.path.basename(path)) for path in gtpaths]
 
@@ -108,9 +116,10 @@ def create_data_split_files():
         labelsTs = os.path.join(DATA_FOLDER, 'labelsTs')
         ctpaths_test = sorted(glob(os.path.join(imagesTs, '*0000.nii.gz')))
         ptpaths_test = sorted(glob(os.path.join(imagesTs, '*0001.nii.gz')))
+        # organmaskpaths_test = sorted(glob(os.path.join(imagesTs, '*0002.nii.gz')))
         gtpaths_test = sorted(glob(os.path.join(labelsTs, '*.nii.gz')))
         imageids_test = [remove_all_extensions(os.path.basename(path)) for path in gtpaths_test]
-        test_data = np.column_stack((imageids_test, ctpaths_test, ptpaths_test, gtpaths_test))
+        test_data = np.column_stack((imageids_test, ctpaths_test, ptpaths_test,  gtpaths_test))
         test_df = pd.DataFrame(test_data, columns=['ImageID', 'CTPATH', 'PTPATH', 'GTPATH'])
         test_df.to_csv(test_filepaths, index=False)
 
@@ -121,11 +130,11 @@ def get_train_valid_data_in_dict_format(fold):
     train_df = trainvalid_df[trainvalid_df['FoldID'] != fold]
     valid_df = trainvalid_df[trainvalid_df['FoldID'] == fold]
 
-    ctpaths_train, ptpaths_train, gtpaths_train = list(train_df['CTPATH'].values), list(train_df['PTPATH'].values),  list(train_df['GTPATH'].values)
-    ctpaths_valid, ptpaths_valid, gtpaths_valid = list(valid_df['CTPATH'].values), list(valid_df['PTPATH'].values),  list(valid_df['GTPATH'].values)
+    ctpaths_train, ptpaths_train, gtpaths_train = list(train_df['CTPATH'].values), list(train_df['PTPATH'].values), list(train_df['GTPATH'].values)
+    ctpaths_valid, ptpaths_valid, gtpaths_valid = list(valid_df['CTPATH'].values), list(valid_df['PTPATH'].values), list(valid_df['GTPATH'].values)
 
-    train_data = create_dictionary_ctptgt(ctpaths_train, ptpaths_train, gtpaths_train)
-    valid_data = create_dictionary_ctptgt(ctpaths_valid, ptpaths_valid, gtpaths_valid)
+    train_data = create_dictionary_ctptgt(ctpaths_train, ptpaths_train,  gtpaths_train)
+    valid_data = create_dictionary_ctptgt(ctpaths_valid, ptpaths_valid,  gtpaths_valid)
 
     return train_data, valid_data
 
@@ -133,8 +142,8 @@ def get_train_valid_data_in_dict_format(fold):
 def get_test_data_in_dict_format():
     test_fpaths = os.path.join(WORKING_FOLDER, 'data_split/test_filepaths.csv')
     test_df = pd.read_csv(test_fpaths)
-    ctpaths_test, ptpaths_test, gtpaths_test = list(test_df['CTPATH'].values), list(test_df['PTPATH'].values),  list(test_df['GTPATH'].values)
-    test_data = create_dictionary_ctptgt(ctpaths_test, ptpaths_test, gtpaths_test)
+    ctpaths_test, ptpaths_test,  gtpaths_test = list(test_df['CTPATH'].values), list(test_df['PTPATH'].values),  list(test_df['GTPATH'].values)
+    test_data = create_dictionary_ctptgt(ctpaths_test, ptpaths_test,  gtpaths_test)
     return test_data
 
 def get_spatial_size(input_patch_size=192):
@@ -145,16 +154,31 @@ def get_spacing():
     spc = 2
     return (spc, spc, spc)
 
+
+# class PrintShape(Transform):
+#     def __call__(self, data):
+#         for key, value in data.items():
+#             if isinstance(value, torch.Tensor):  # Ensure the data item is a tensor
+#                 print(f"{key}: {value.shape}")
+#         return data
+    
+# class DebugTransform(Transform):
+#     def __call__(self, data):
+#         for key in data.keys():
+#             print(f"{key}: {data[key].shape}")
+#         return data
+
 def get_train_transforms(input_patch_size=192):
     spatialsize = get_spatial_size(input_patch_size)
     spacing = get_spacing()
-    mod_keys = ['CT', 'PT', 'GT']
+    mod_keys = ['CT', 'PT',  'GT']
     train_transforms = Compose(
     [
         LoadImaged(keys=mod_keys, image_only=False),
-        EnsureChannelFirstd(keys=mod_keys),
+        EnsureChannelFirstd(keys=mod_keys, channel_dim='no_channel'),
         CropForegroundd(keys=mod_keys, source_key='CT'),
         ScaleIntensityd(keys=['CT'], minv=0, maxv=1),
+        # # ScaleIntensityRanged(keys=['CT'], a_min = -1500, a_max = 3071, b_min=0, b_max=1, clip=True),
         Orientationd(keys=mod_keys, axcodes="RAS"),
         Spacingd(keys=mod_keys, pixdim=spacing, mode=('bilinear', 'bilinear', 'nearest')),
         RandCropByPosNegLabeld(
@@ -182,7 +206,8 @@ def get_train_transforms(input_patch_size=192):
             rotate_range=(0, 0, np.pi/15),
             scale_range=(0.1, 0.1, 0.1)),
         ConcatItemsd(keys=['CT', 'PT'], name='CTPT', dim=0),
-        DeleteItemsd(keys=['CT', 'PT'])
+        
+        DeleteItemsd(keys=['CT','PT'])
     ])
 
     return train_transforms
@@ -197,6 +222,7 @@ def get_valid_transforms():
         EnsureChannelFirstd(keys=mod_keys),
         CropForegroundd(keys=mod_keys, source_key='CT'),
         ScaleIntensityd(keys=['CT'], minv=0, maxv=1),
+        # ScaleIntensityRanged(keys=['CT'], a_min = -1500, a_max = 3071, b_min=0, b_max=1, clip=True),
         Orientationd(keys=mod_keys, axcodes="RAS"),
         Spacingd(keys=mod_keys, pixdim=spacing, mode=('bilinear', 'bilinear', 'nearest')),
         ConcatItemsd(keys=['CT', 'PT'], name='CTPT', dim=0),
@@ -258,12 +284,39 @@ def get_model(network_name = 'unet', input_patch_size=192):
     if network_name == 'unet':
         model = UNet(
             spatial_dims=3,
-            in_channels=2,
+            in_channels=2, #Changed to 3 for the organ mask
             out_channels=2,
             channels=(16, 32, 64, 128, 256, 512),
             strides=(2, 2, 2, 2, 2),
             num_res_units=2,
             norm=Norm.BATCH
+        )
+        
+    elif network_name == 'swinunetr':
+        spatialsize = get_spatial_size(input_patch_size)
+        model = SwinUNETR(
+            img_size=spatialsize,
+            in_channels=2,
+            out_channels=2,
+            feature_size=12,
+            use_checkpoint=False,
+        )
+    elif network_name =='segresnet':
+        model = SegResNet(
+            spatial_dims=3,
+            blocks_down=[1, 2, 2, 4],
+            blocks_up=[1, 1, 1],
+            init_filters=16,
+            in_channels=2,
+            out_channels=2,
+        )
+    elif network_name == 'attunet':
+        model = AttentionUnet(
+            spatial_dims=3,
+            in_channels=2,
+            out_channels=2,
+            channels=(16, 32, 64, 128, 256, 512),
+            strides=(2,2,2,2,2)
         )
 
     else:
@@ -272,8 +325,17 @@ def get_model(network_name = 'unet', input_patch_size=192):
 
 
 #%%
-def get_loss_function():
-    loss_function = DiceLoss(to_onehot_y=True, softmax=True)
+def get_loss_function(loss_func = 'dicefocal'):
+    if loss_func == "dicefocal":
+        loss_function = DiceFocalLoss(to_onehot_y=True, softmax=True, lambda_dice=1.0, lambda_focal=1.0)
+    elif loss_func == "diceloss":
+        loss_function = DiceLoss(to_onehot_y=True, softmax=True)
+    elif loss_func == "dice_ce":
+        loss_function = DiceCELoss(to_onehot_y=True, softmax=True)
+    elif loss_func == "L1ghdl":
+        loss_function = GHMDiceLoss()
+    elif loss_func == "1L1ghdl":
+        loss_function = GHMDiceLoss1()
     return loss_function
 
 def get_optimizer(model, learning_rate=2e-4, weight_decay=1e-5):
